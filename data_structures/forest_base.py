@@ -1,3 +1,10 @@
+"""
+Base forest implementation.
+
+This module is based on the FastForest project (https://github.com/ThrunGroup/FastForest)
+and extends it with additional features including gradient boosting support and MABSplit
+integration.
+"""
 import numpy as np
 from typing import Tuple, DefaultDict, Union
 from abc import ABC

@@ -34,14 +34,18 @@ class GBDTParams:
 
     # MABSplit controls.
     batch_size: int = 256
+    initial_batch_size: int | None = None
+    batch_growth: float = 2.0
     sample_without_replacement: bool = True
     max_samples: int | None = None
     missing_policy: str = "both"
     Gmax: float = 10.0
     Hmax: float = 1.0
+    delta_allocation_power: float = 0.0
     disable_elimination: bool = False
+    use_feature_elimination: bool = True
+    exact_short_circuit_updates: int | None = 50000
     max_rounds: int | None = None
-    fallback_to_exact: bool = True
 
     # Delta allocation.
     delta_global: float = 1e-3
@@ -122,9 +126,22 @@ class GBDTTrainer:
 
         for tree_idx in range(self.params.n_estimators):
             provider = GradHessProvider(y=y, pred=pred, config=gh_config)
+            # Tighten CI bounds with observed per-iteration gradient/hessian envelopes.
+            if provider.g.size > 0:
+                observed_gmax = float(np.max(np.abs(provider.g)))
+            else:
+                observed_gmax = self.params.Gmax
+            if provider.h.size > 0:
+                observed_hmax = float(np.max(provider.h))
+            else:
+                observed_hmax = self.params.Hmax
+            effective_Gmax = min(self.params.Gmax, max(observed_gmax, 1e-12))
+            effective_Hmax = min(self.params.Hmax, max(observed_hmax, 1e-12))
 
             mabsplit_params = MABSplitParams(
                 batch_size=self.params.batch_size,
+                initial_batch_size=self.params.initial_batch_size,
+                batch_growth=self.params.batch_growth,
                 sample_without_replacement=self.params.sample_without_replacement,
                 max_samples=self.params.max_samples,
                 lambda_=self.params.lambda_,
@@ -132,11 +149,13 @@ class GBDTTrainer:
                 min_child_weight=self.params.min_child_weight,
                 min_samples_leaf=self.params.min_samples_leaf,
                 missing_policy=self.params.missing_policy,
-                Gmax=self.params.Gmax,
-                Hmax=self.params.Hmax,
+                Gmax=effective_Gmax,
+                Hmax=effective_Hmax,
+                delta_allocation_power=self.params.delta_allocation_power,
                 disable_elimination=self.params.disable_elimination,
+                use_feature_elimination=self.params.use_feature_elimination,
+                exact_short_circuit_updates=self.params.exact_short_circuit_updates,
                 max_rounds=self.params.max_rounds,
-                fallback_to_exact=self.params.fallback_to_exact,
             )
 
             tree_params = TreeBuilderParams(

@@ -33,7 +33,6 @@ ESSENTIAL_COLUMNS = [
     "num_bins",
     "batch_size",
     "max_samples_per_node",
-    "approximate",
     "exact_train_time_sec_mean",
     "mab_train_time_sec_mean",
     "time_speedup_exact_over_mab",
@@ -264,7 +263,6 @@ def run_one_model(
         h_clip=cfg.h_clip,
         Gmax=cfg.gmax,
         Hmax=cfg.hmax,
-        fallback_to_exact=not cfg.approximate,
         random_state=seed,
     )
 
@@ -340,11 +338,6 @@ def main() -> None:
     parser.add_argument("--gmax", type=float, default=10.0)
     parser.add_argument("--hmax", type=float, default=1.0)
 
-    parser.add_argument(
-        "--approximate",
-        action="store_true",
-        help="Disable fallback-to-exact in MABSplit (faster, approximate)",
-    )
     parser.add_argument(
         "--dataset-specs",
         type=str,
@@ -580,7 +573,6 @@ def main() -> None:
                 "batch_size": args.batch_size,
                 "max_samples_per_node": args.max_samples_per_node,
                 "delta_global": args.delta_global,
-                "approximate": args.approximate,
                 "real_max_rows": args.real_max_rows
                 if spec.source == "real"
                 else "",

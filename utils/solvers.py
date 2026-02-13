@@ -1,3 +1,10 @@
+"""
+Splitting solvers including MABSplit implementation.
+
+This module contains the MABSplit algorithm, a novel split search strategy that uses
+multi-armed bandit techniques to efficiently select the best split for tree nodes.
+It builds upon the FastForest framework (https://github.com/ThrunGroup/FastForest).
+"""
 import math
 import itertools
 import numpy as np

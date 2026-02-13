@@ -143,7 +143,6 @@ def evaluate_one(
     h_clip,
     Gmax,
     Hmax,
-    approximate,
 ):
     X_train, X_test, y_train, y_test = _train_test_split(
         X,
@@ -175,7 +174,6 @@ def evaluate_one(
         h_clip=h_clip,
         Gmax=Gmax,
         Hmax=Hmax,
-        fallback_to_exact=not approximate,
         random_state=random_state,
     )
 
@@ -254,11 +252,6 @@ def main():
     parser.add_argument("--h-clip", type=float, default=1.0)
     parser.add_argument("--gmax", type=float, default=10.0)
     parser.add_argument("--hmax", type=float, default=1.0)
-    parser.add_argument(
-        "--approximate",
-        action="store_true",
-        help="Disable fallback-to-exact in MABSplit (faster, approximate splits)",
-    )
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument(
         "--exact",
@@ -295,7 +288,6 @@ def main():
             h_clip=args.h_clip,
             Gmax=args.gmax,
             Hmax=args.hmax,
-            approximate=args.approximate,
         )
         print(
             "GBDT+MABSplit"
@@ -331,7 +323,6 @@ def main():
                 h_clip=args.h_clip,
                 Gmax=args.gmax,
                 Hmax=args.hmax,
-                approximate=args.approximate,
             )
             print(
                 "GBDT-ExactHist"
