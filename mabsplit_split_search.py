@@ -58,6 +58,8 @@ class MABSplitParams:
     delta_allocation_power: float = 0.0
 
     exact_match_mode: bool = False
+    finalize_with_exact: bool = True
+    fallback_to_exact: bool = True
     disable_elimination: bool = False
     use_feature_elimination: bool = True
     exact_short_circuit_updates: int | None = 50000
@@ -191,26 +193,41 @@ class MABSplitSplitSearch:
     def _build_exact_feature_state(self, features: list[int]) -> dict[int, dict[str, np.ndarray | float | int]]:
         state = self._initial_feature_state(features)
 
-        for row_idx in self.node_rows:
+        _ = self._accumulate_rows_into_feature_state(
+            feature_state=state,
+            features=features,
+            rows=self.node_rows,
+        )
+
+        return state
+
+    def _accumulate_rows_into_feature_state(
+        self,
+        feature_state: dict[int, dict[str, np.ndarray | float | int]],
+        features: list[int],
+        rows: np.ndarray,
+    ) -> int:
+        updates = 0
+        for row_idx in rows:
             g_i, h_i = self.grad_hess_provider.get_g_h(int(row_idx))
             g2_i = g_i * g_i
             h2_i = h_i * h_i
             for feature in features:
                 b = int(self.X_bin[row_idx, feature])
                 if b < 0:
-                    state[feature]["G_missing"] = float(state[feature]["G_missing"]) + g_i
-                    state[feature]["H_missing"] = float(state[feature]["H_missing"]) + h_i
-                    state[feature]["G2_missing"] = float(state[feature]["G2_missing"]) + g2_i
-                    state[feature]["H2_missing"] = float(state[feature]["H2_missing"]) + h2_i
-                    state[feature]["C_missing"] = int(state[feature]["C_missing"]) + 1
+                    feature_state[feature]["G_missing"] = float(feature_state[feature]["G_missing"]) + g_i
+                    feature_state[feature]["H_missing"] = float(feature_state[feature]["H_missing"]) + h_i
+                    feature_state[feature]["G2_missing"] = float(feature_state[feature]["G2_missing"]) + g2_i
+                    feature_state[feature]["H2_missing"] = float(feature_state[feature]["H2_missing"]) + h2_i
+                    feature_state[feature]["C_missing"] = int(feature_state[feature]["C_missing"]) + 1
                 else:
-                    state[feature]["G_hist"][b] += g_i
-                    state[feature]["H_hist"][b] += h_i
-                    state[feature]["G2_hist"][b] += g2_i
-                    state[feature]["H2_hist"][b] += h2_i
-                    state[feature]["C_hist"][b] += 1
-
-        return state
+                    feature_state[feature]["G_hist"][b] += g_i
+                    feature_state[feature]["H_hist"][b] += h_i
+                    feature_state[feature]["G2_hist"][b] += g2_i
+                    feature_state[feature]["H2_hist"][b] += h2_i
+                    feature_state[feature]["C_hist"][b] += 1
+                updates += 1
+        return updates
 
     def _evaluate_arms(
         self,
@@ -484,6 +501,13 @@ class MABSplitSplitSearch:
             n_used=self.n_node,
         )
 
+        best_arm, best_gain = self._pick_best_arm_from_stats(arm_stats)
+        return best_arm, best_gain, self.n_node * len(features)
+
+    @staticmethod
+    def _pick_best_arm_from_stats(
+        arm_stats: dict[SplitArm, dict[str, float]],
+    ) -> tuple[SplitArm | None, float]:
         best_arm = None
         best_mu = float("inf")
         best_gain = -float("inf")
@@ -494,8 +518,79 @@ class MABSplitSplitSearch:
                 best_mu = mu_hat
                 best_arm = arm
                 best_gain = gain_hat
+        return best_arm, best_gain
 
-        return best_arm, best_gain, self.n_node * len(features)
+    def _resolve_exact_for_survivors(
+        self,
+        arms: list[SplitArm],
+        G_node: float,
+        H_node: float,
+        feature_state: dict[int, dict[str, np.ndarray | float | int]] | None,
+        unsampled_rows: np.ndarray | None,
+    ) -> tuple[SplitArm | None, float, int, int]:
+        if len(arms) == 0:
+            return None, -float("inf"), 0, 0
+
+        can_complete_from_partial = (
+            self.params.sample_without_replacement
+            and feature_state is not None
+            and unsampled_rows is not None
+        )
+        if not can_complete_from_partial:
+            best_arm, best_gain, exact_updates = self._exact_best_split_for_arms(
+                arms,
+                G_node=G_node,
+                H_node=H_node,
+            )
+            return best_arm, best_gain, exact_updates, self.n_node
+
+        features = sorted({arm.feature for arm in arms})
+        if any(feature not in feature_state for feature in features):
+            best_arm, best_gain, exact_updates = self._exact_best_split_for_arms(
+                arms,
+                G_node=G_node,
+                H_node=H_node,
+            )
+            return best_arm, best_gain, exact_updates, self.n_node
+
+        exact_state = feature_state
+        remaining_rows = np.asarray(unsampled_rows, dtype=np.int32)
+        exact_updates = self._accumulate_rows_into_feature_state(
+            feature_state=exact_state,
+            features=features,
+            rows=remaining_rows,
+        )
+        arm_stats = self._evaluate_arms(
+            arms,
+            exact_state,
+            G_node=G_node,
+            H_node=H_node,
+            n_used=self.n_node,
+        )
+        best_arm, best_gain = self._pick_best_arm_from_stats(arm_stats)
+        return best_arm, best_gain, exact_updates, int(remaining_rows.size)
+
+    def _resolve_approx_for_survivors(
+        self,
+        arms: list[SplitArm],
+        G_node: float,
+        H_node: float,
+        feature_state: dict[int, dict[str, np.ndarray | float | int]] | None,
+        n_used: int,
+    ) -> tuple[SplitArm | None, float]:
+        if len(arms) == 0:
+            return None, -float("inf")
+        if feature_state is None or n_used <= 0:
+            return None, -float("inf")
+
+        arm_stats = self._evaluate_arms(
+            arms,
+            feature_state,
+            G_node=G_node,
+            H_node=H_node,
+            n_used=n_used,
+        )
+        return self._pick_best_arm_from_stats(arm_stats)
 
     def search(self) -> SplitSearchResult:
         start = time.perf_counter()
@@ -578,13 +673,24 @@ class MABSplitSplitSearch:
                 break
 
             if len(surviving) == 1:
-                best_arm, best_gain, exact_updates = self._exact_best_split_for_arms(
-                    surviving,
-                    G_node=G_node,
-                    H_node=H_node,
-                )
-                metrics.total_histogram_updates += exact_updates
-                metrics.total_sampled_rows += self.n_node
+                if self.params.finalize_with_exact or metrics.n_used <= 0:
+                    best_arm, best_gain, exact_updates, exact_rows = self._resolve_exact_for_survivors(
+                        surviving,
+                        G_node=G_node,
+                        H_node=H_node,
+                        feature_state=feature_state,
+                        unsampled_rows=unsampled_rows,
+                    )
+                    metrics.total_histogram_updates += exact_updates
+                    metrics.total_sampled_rows += exact_rows
+                else:
+                    best_arm, best_gain = self._resolve_approx_for_survivors(
+                        surviving,
+                        G_node=G_node,
+                        H_node=H_node,
+                        feature_state=feature_state,
+                        n_used=metrics.n_used,
+                    )
                 metrics.arms_remaining_history.append(1 if best_arm is not None else 0)
                 metrics.time_spent_sec = time.perf_counter() - start
                 return SplitSearchResult(best_arm, best_gain, G_node, H_node, metrics)
@@ -601,60 +707,60 @@ class MABSplitSplitSearch:
                     and metrics.rounds >= self.params.max_rounds
                 )
             ):
-                best_arm, best_gain, exact_updates = self._exact_best_split_for_arms(
-                    surviving,
-                    G_node=G_node,
-                    H_node=H_node,
-                )
-                metrics.total_histogram_updates += exact_updates
-                metrics.total_sampled_rows += self.n_node
-                metrics.fallback_to_exact = True
+                if self.params.fallback_to_exact or metrics.n_used <= 0:
+                    best_arm, best_gain, exact_updates, exact_rows = self._resolve_exact_for_survivors(
+                        surviving,
+                        G_node=G_node,
+                        H_node=H_node,
+                        feature_state=feature_state,
+                        unsampled_rows=unsampled_rows,
+                    )
+                    metrics.total_histogram_updates += exact_updates
+                    metrics.total_sampled_rows += exact_rows
+                    metrics.fallback_to_exact = True
+                else:
+                    best_arm, best_gain = self._resolve_approx_for_survivors(
+                        surviving,
+                        G_node=G_node,
+                        H_node=H_node,
+                        feature_state=feature_state,
+                        n_used=metrics.n_used,
+                    )
+                    metrics.fallback_to_exact = False
                 metrics.time_spent_sec = time.perf_counter() - start
                 return SplitSearchResult(best_arm, best_gain, G_node, H_node, metrics)
 
             requested = min(current_batch_size, max_samples - metrics.n_used)
             batch_rows, unsampled_rows = self._draw_batch(unsampled_rows, requested)
             if batch_rows.size == 0:
-                best_arm, best_gain, exact_updates = self._exact_best_split_for_arms(
-                    surviving,
-                    G_node=G_node,
-                    H_node=H_node,
-                )
-                metrics.total_histogram_updates += exact_updates
-                metrics.total_sampled_rows += self.n_node
-                metrics.fallback_to_exact = True
+                if self.params.fallback_to_exact or metrics.n_used <= 0:
+                    best_arm, best_gain, exact_updates, exact_rows = self._resolve_exact_for_survivors(
+                        surviving,
+                        G_node=G_node,
+                        H_node=H_node,
+                        feature_state=feature_state,
+                        unsampled_rows=unsampled_rows,
+                    )
+                    metrics.total_histogram_updates += exact_updates
+                    metrics.total_sampled_rows += exact_rows
+                    metrics.fallback_to_exact = True
+                else:
+                    best_arm, best_gain = self._resolve_approx_for_survivors(
+                        surviving,
+                        G_node=G_node,
+                        H_node=H_node,
+                        feature_state=feature_state,
+                        n_used=metrics.n_used,
+                    )
+                    metrics.fallback_to_exact = False
                 metrics.time_spent_sec = time.perf_counter() - start
                 return SplitSearchResult(best_arm, best_gain, G_node, H_node, metrics)
 
-            for row_idx in batch_rows:
-                g_i, h_i = self.grad_hess_provider.get_g_h(int(row_idx))
-                g2_i = g_i * g_i
-                h2_i = h_i * h_i
-                for feature in active_features:
-                    b = int(self.X_bin[row_idx, feature])
-                    if b < 0:
-                        feature_state[feature]["G_missing"] = (
-                            float(feature_state[feature]["G_missing"]) + g_i
-                        )
-                        feature_state[feature]["H_missing"] = (
-                            float(feature_state[feature]["H_missing"]) + h_i
-                        )
-                        feature_state[feature]["G2_missing"] = (
-                            float(feature_state[feature]["G2_missing"]) + g2_i
-                        )
-                        feature_state[feature]["H2_missing"] = (
-                            float(feature_state[feature]["H2_missing"]) + h2_i
-                        )
-                        feature_state[feature]["C_missing"] = (
-                            int(feature_state[feature]["C_missing"]) + 1
-                        )
-                    else:
-                        feature_state[feature]["G_hist"][b] += g_i
-                        feature_state[feature]["H_hist"][b] += h_i
-                        feature_state[feature]["G2_hist"][b] += g2_i
-                        feature_state[feature]["H2_hist"][b] += h2_i
-                        feature_state[feature]["C_hist"][b] += 1
-                    metrics.total_histogram_updates += 1
+            metrics.total_histogram_updates += self._accumulate_rows_into_feature_state(
+                feature_state=feature_state,
+                features=active_features,
+                rows=batch_rows,
+            )
 
             metrics.n_used += int(batch_rows.size)
             metrics.total_sampled_rows += int(batch_rows.size)
@@ -730,14 +836,26 @@ class MABSplitSplitSearch:
                     and metrics.rounds >= self.params.min_rounds_before_forced_exact
                     and no_progress_rounds >= self.params.no_progress_patience
                 ):
-                    best_arm, best_gain, exact_updates = self._exact_best_split_for_arms(
-                        surviving,
-                        G_node=G_node,
-                        H_node=H_node,
-                    )
-                    metrics.total_histogram_updates += exact_updates
-                    metrics.total_sampled_rows += self.n_node
-                    metrics.fallback_to_exact = True
+                    if self.params.fallback_to_exact or metrics.n_used <= 0:
+                        best_arm, best_gain, exact_updates, exact_rows = self._resolve_exact_for_survivors(
+                            surviving,
+                            G_node=G_node,
+                            H_node=H_node,
+                            feature_state=feature_state,
+                            unsampled_rows=unsampled_rows,
+                        )
+                        metrics.total_histogram_updates += exact_updates
+                        metrics.total_sampled_rows += exact_rows
+                        metrics.fallback_to_exact = True
+                    else:
+                        best_arm, best_gain = self._resolve_approx_for_survivors(
+                            surviving,
+                            G_node=G_node,
+                            H_node=H_node,
+                            feature_state=feature_state,
+                            n_used=metrics.n_used,
+                        )
+                        metrics.fallback_to_exact = False
                     metrics.arms_remaining_history.append(len(surviving))
                     metrics.time_spent_sec = time.perf_counter() - start
                     return SplitSearchResult(best_arm, best_gain, G_node, H_node, metrics)

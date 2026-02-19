@@ -44,7 +44,12 @@ class GBDTParams:
     delta_allocation_power: float = 0.0
     disable_elimination: bool = False
     use_feature_elimination: bool = True
+    finalize_with_exact: bool = False
+    fallback_to_exact: bool = False
     exact_short_circuit_updates: int | None = 50000
+    early_exact_if_no_progress: bool = True
+    no_progress_patience: int = 5
+    min_rounds_before_forced_exact: int = 20
     max_rounds: int | None = None
 
     # Delta allocation.
@@ -154,7 +159,12 @@ class GBDTTrainer:
                 delta_allocation_power=self.params.delta_allocation_power,
                 disable_elimination=self.params.disable_elimination,
                 use_feature_elimination=self.params.use_feature_elimination,
+                finalize_with_exact=self.params.finalize_with_exact,
+                fallback_to_exact=self.params.fallback_to_exact,
                 exact_short_circuit_updates=self.params.exact_short_circuit_updates,
+                early_exact_if_no_progress=self.params.early_exact_if_no_progress,
+                no_progress_patience=self.params.no_progress_patience,
+                min_rounds_before_forced_exact=self.params.min_rounds_before_forced_exact,
                 max_rounds=self.params.max_rounds,
             )
 

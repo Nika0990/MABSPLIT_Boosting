@@ -241,6 +241,9 @@ def run_one_model(
     cfg,
     seed: int,
 ) -> dict[str, float]:
+    max_samples = (
+        None if cfg.max_samples_per_node is None or cfg.max_samples_per_node <= 0 else cfg.max_samples_per_node
+    )
     params = GBDTParams(
         n_estimators=cfg.n_estimators,
         learning_rate=cfg.learning_rate,
@@ -255,7 +258,7 @@ def run_one_model(
         validation_mode="off",
         batch_size=cfg.batch_size,
         sample_without_replacement=True,
-        max_samples=cfg.max_samples_per_node,
+        max_samples=max_samples,
         missing_policy="both",
         delta_global=cfg.delta_global,
         loss="logistic" if task == "classification" else "squared_error",
@@ -263,6 +266,11 @@ def run_one_model(
         h_clip=cfg.h_clip,
         Gmax=cfg.gmax,
         Hmax=cfg.hmax,
+        finalize_with_exact=cfg.finalize_with_exact,
+        fallback_to_exact=cfg.fallback_to_exact,
+        early_exact_if_no_progress=(not cfg.disable_early_no_progress_stop),
+        no_progress_patience=cfg.no_progress_patience,
+        min_rounds_before_forced_exact=cfg.min_rounds_before_stop,
         random_state=seed,
     )
 
@@ -314,7 +322,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Large-dataset benchmark for GBDT exact histogram vs GBDT+MABSplit extension"
     )
-    parser.add_argument("--output", type=str, default="result_gbdt_extension.csv")
+    parser.add_argument(
+        "--output",
+        "--output-csv",
+        dest="output",
+        type=str,
+        default="result_gbdt_extension.csv",
+    )
     parser.add_argument("--n-runs", type=int, default=3)
     parser.add_argument("--seed-start", type=int, default=0)
     parser.add_argument("--seed-stride", type=int, default=1)
@@ -324,7 +338,12 @@ def main() -> None:
     parser.add_argument("--max-depth", type=int, default=3)
     parser.add_argument("--max-bins", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--max-samples-per-node", type=int, default=256)
+    parser.add_argument(
+        "--max-samples-per-node",
+        type=int,
+        default=256,
+        help="MAB sampling cap per node; use <=0 for no fixed cap (adaptive to node size)",
+    )
 
     parser.add_argument("--min-samples-split", type=int, default=4)
     parser.add_argument("--min-samples-leaf", type=int, default=2)
@@ -337,6 +356,33 @@ def main() -> None:
     parser.add_argument("--h-clip", type=float, default=1.0)
     parser.add_argument("--gmax", type=float, default=10.0)
     parser.add_argument("--hmax", type=float, default=1.0)
+    parser.add_argument(
+        "--finalize-with-exact",
+        action="store_true",
+        help="Use exact finalization when one arm remains.",
+    )
+    parser.add_argument(
+        "--fallback-to-exact",
+        action="store_true",
+        help="Use exact fallback when MAB terminates early.",
+    )
+    parser.add_argument(
+        "--disable-early-no-progress-stop",
+        action="store_true",
+        help="Disable early termination when elimination stalls.",
+    )
+    parser.add_argument(
+        "--no-progress-patience",
+        type=int,
+        default=5,
+        help="Rounds with no elimination before early termination.",
+    )
+    parser.add_argument(
+        "--min-rounds-before-stop",
+        type=int,
+        default=20,
+        help="Minimum rounds before no-progress early termination can trigger.",
+    )
 
     parser.add_argument(
         "--dataset-specs",
@@ -429,6 +475,14 @@ def main() -> None:
         ]
 
     rows_out = []
+    mode_note = (
+        "GBDT extension only: exact histogram vs MABSplit split-search"
+        f" | finalize_with_exact={args.finalize_with_exact}"
+        f" | fallback_to_exact={args.fallback_to_exact}"
+        f" | early_no_progress_stop={not args.disable_early_no_progress_stop}"
+        f" | no_progress_patience={args.no_progress_patience}"
+        f" | min_rounds_before_stop={args.min_rounds_before_stop}"
+    )
 
     for spec in dataset_specs:
         exact_runs: list[dict[str, float]] = []
@@ -617,7 +671,7 @@ def main() -> None:
                 "mab_auc_std": mab_auc_std,
                 "auc_gap_mab_minus_exact": auc_gap_mean,
                 "auc_gap_mab_minus_exact_std": auc_gap_std,
-                "note": "GBDT extension only: exact histogram vs MABSplit split-search",
+                "note": mode_note,
             }
         )
 

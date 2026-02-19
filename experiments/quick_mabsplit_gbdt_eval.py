@@ -143,6 +143,11 @@ def evaluate_one(
     h_clip,
     Gmax,
     Hmax,
+    finalize_with_exact,
+    fallback_to_exact,
+    early_exact_if_no_progress,
+    no_progress_patience,
+    min_rounds_before_forced_exact,
 ):
     X_train, X_test, y_train, y_test = _train_test_split(
         X,
@@ -166,7 +171,7 @@ def evaluate_one(
         validation_mode="off",
         batch_size=batch_size,
         sample_without_replacement=True,
-        max_samples=max_samples_per_node,
+        max_samples=(None if max_samples_per_node is None or max_samples_per_node <= 0 else max_samples_per_node),
         missing_policy="both",
         delta_global=delta_global,
         loss="logistic" if task == "classification" else "squared_error",
@@ -174,6 +179,11 @@ def evaluate_one(
         h_clip=h_clip,
         Gmax=Gmax,
         Hmax=Hmax,
+        finalize_with_exact=finalize_with_exact,
+        fallback_to_exact=fallback_to_exact,
+        early_exact_if_no_progress=early_exact_if_no_progress,
+        no_progress_patience=no_progress_patience,
+        min_rounds_before_forced_exact=min_rounds_before_forced_exact,
         random_state=random_state,
     )
 
@@ -245,13 +255,40 @@ def main():
         "--max-samples-per-node",
         type=int,
         default=512,
-        help="MAB sampling cap per node; lower is faster",
+        help="MAB sampling cap per node; use <=0 for no fixed cap (adaptive to node size)",
     )
     parser.add_argument("--delta-global", type=float, default=1e-3)
     parser.add_argument("--g-clip", type=float, default=10.0)
     parser.add_argument("--h-clip", type=float, default=1.0)
     parser.add_argument("--gmax", type=float, default=10.0)
     parser.add_argument("--hmax", type=float, default=1.0)
+    parser.add_argument(
+        "--finalize-with-exact",
+        action="store_true",
+        help="Use exact finalization when one arm remains.",
+    )
+    parser.add_argument(
+        "--fallback-to-exact",
+        action="store_true",
+        help="Use exact fallback when MAB terminates early.",
+    )
+    parser.add_argument(
+        "--disable-early-no-progress-stop",
+        action="store_true",
+        help="Disable early termination when elimination stalls.",
+    )
+    parser.add_argument(
+        "--no-progress-patience",
+        type=int,
+        default=5,
+        help="Rounds with no elimination before early termination.",
+    )
+    parser.add_argument(
+        "--min-rounds-before-stop",
+        type=int,
+        default=20,
+        help="Minimum rounds before no-progress early termination can trigger.",
+    )
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument(
         "--exact",
@@ -288,6 +325,11 @@ def main():
             h_clip=args.h_clip,
             Gmax=args.gmax,
             Hmax=args.hmax,
+            finalize_with_exact=args.finalize_with_exact,
+            fallback_to_exact=args.fallback_to_exact,
+            early_exact_if_no_progress=(not args.disable_early_no_progress_stop),
+            no_progress_patience=args.no_progress_patience,
+            min_rounds_before_forced_exact=args.min_rounds_before_stop,
         )
         print(
             "GBDT+MABSplit"
@@ -323,6 +365,11 @@ def main():
                 h_clip=args.h_clip,
                 Gmax=args.gmax,
                 Hmax=args.hmax,
+                finalize_with_exact=args.finalize_with_exact,
+                fallback_to_exact=args.fallback_to_exact,
+                early_exact_if_no_progress=(not args.disable_early_no_progress_stop),
+                no_progress_patience=args.no_progress_patience,
+                min_rounds_before_forced_exact=args.min_rounds_before_stop,
             )
             print(
                 "GBDT-ExactHist"
