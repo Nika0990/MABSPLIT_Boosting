@@ -36,3 +36,14 @@ forests, trees, nodes, and histograms.
   
 # Reproduce the tables
 - To reproduce the results in all the tables, and to reproduce the figure in Appendix 2, please run `repro_script.sh`. This may take many hours.
+
+# Installation and Large Dataset Files
+- Install dependencies:
+  - `pip install -e .`
+  - or `pip install -r requirements.txt`
+- Some derived datasets are generated locally during experiments and can be very large.
+  GitHub rejects files above 100 MB, so large generated CSVs should not be committed.
+- In particular, keep these files local only:
+  - `experiments/dataset/derived/covtype_1v2_binary.csv`
+  - `experiments/dataset/derived/paper_covtype_class2_vs_rest_581k.csv`
+- If needed, regenerate derived datasets by rerunning the benchmark/data-prep scripts used in this repo instead of committing the raw generated CSVs.

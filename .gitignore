@@ -5,3 +5,6 @@ __pycache__/
 experiments/.ipynb_checkpoints/*
 experiments/mnist
 experiments/.DS_Store
+# Large generated datasets (keep local, do not commit)
+experiments/dataset/derived/covtype_1v2_binary.csv
+experiments/dataset/derived/paper_covtype_class2_vs_rest_581k.csv
