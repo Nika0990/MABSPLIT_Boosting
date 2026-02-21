@@ -7,7 +7,7 @@ This project is based on the [FastForest](https://github.com/ThrunGroup/FastFore
 We thank you for your time in reviewing our submission. 
 We understand that you are performing a service to the community.
 In order to ensure that review of this code is as easy as possible, we have:
-- Included a one-line script to recreate all results (`repro_results.sh`)
+- Included a one-line script to recreate all results (`repro_script.sh`)
 - Heavily commented and documented the code
 - Included an overview of the codebase and the files.
 
@@ -28,14 +28,16 @@ forests, trees, nodes, and histograms.
   - `experiments/budget_exps` contains the script (`compare_budgets.py`) to reproduce the results of Tables 3 and 4, as well as the results of running that script (the files ending in `_dict`)
   - `experiments/sklearn_exps` contains the script (`compare_baseline_implementations.py`) to reproduce the results of Table 6 in Appendix 4
   - `experiments/scaling_exps` contains the scripts (`investigate_scaling.py` and `make_scaling_plot.py`) to reproduce Appendix Figure 1 in Appendix 2 
-- the `tests` subdirectory tests that we wrote to verify the correctness of our implementations
-  - `tests/feature_importance_tests.py` is also used to regenerate the results in Table 5
-    -  You can reproduce the results for just Table 5 by running `tests/feature_importance_tests.py`. The results will be stored in the first 4 lines of `tests/stat_test_stability_log/reproduce_stability.csv` file. 
+- the `tests` subdirectory contains verification tests for the tree/forest implementations.
+- feature-stability experiments for Table 5 are in `experiments/feature_stability/feature_importance_tests.py`.
+  Results are written to `experiments/feature_stability/stat_test_stability_log/reproduce_stability.csv`.
 - the `utils` directory contains helper code for training forest-based models
   - `utils/solvers.py` includes the core implementation of MABSplit in the `solve_mab()` function
   
 # Reproduce the tables
-- To reproduce the results in all the tables, and to reproduce the figure in Appendix 2, please run `repro_script.sh`. This may take many hours.
+- To reproduce the results in all the tables, and to reproduce the figure in Appendix 2, run:
+  - `bash repro_script.sh`
+  This may take many hours.
 
 # Installation and Large Dataset Files
 - Install dependencies:
