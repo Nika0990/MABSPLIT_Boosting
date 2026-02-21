@@ -2,17 +2,6 @@
 
 This project is based on the [FastForest](https://github.com/ThrunGroup/FastForest) repository by the Thrun Group. We build upon their foundational work on efficient decision tree and forest implementations, extending their approach with MABSplit and additional experimental features.
 
-# Dear Reviewer:
-
-We thank you for your time in reviewing our submission. 
-We understand that you are performing a service to the community.
-In order to ensure that review of this code is as easy as possible, we have:
-- Included a one-line script to recreate all results (`repro_script.sh`)
-- Heavily commented and documented the code
-- Included an overview of the codebase and the files.
-
-Thank you for reviewing our submission!
-
 # Description of Files
 
 The files are organized as follows:
