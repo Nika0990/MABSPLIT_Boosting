@@ -1,40 +1,90 @@
-# Attribution
+# MABSplit Boosting (FastForest Extension)
 
-This project is based on the [FastForest](https://github.com/ThrunGroup/FastForest) repository by the Thrun Group. We build upon their foundational work on efficient decision tree and forest implementations, extending their approach with MABSplit and additional experimental features.
+This repository is an extension of FastForest focused on MABSplit-based split selection and a new histogram-based gradient boosting pipeline.
 
-# Description of Files
+Upstream codebase we extended:
+- FastForest: `https://github.com/ThrunGroup/FastForest`
 
-The files are organized as follows:
+## What We Added
 
-- `data_structures` contains all of the data structures used in our experiments, e.g., 
-forests, trees, nodes, and histograms.
-  - the `wrappers` subdirectory contains convenience classes to instantiate models of various types,
-  e.g., a `RandomForestClassifier` is a forest classifier with `bootstrap=True` 
-  (indicating to draw a bootstrap sample of the `n` datapoints for each tree), `feature_subsampling=SQRT`
-  (indicating to consider only `sqrt(F)` features of the original `F` features at each node split), etc.
-- the `experiments` subdirectory contains all the code for our core experiments
-  - `experiments/runtime_exps` contains the script (`compare_runtimes.py`) to reproduce the results of Tables 1 and 2, as well as the results of running that script (the files ending in `_profile` or `_dict`)
-  - `experiments/budget_exps` contains the script (`compare_budgets.py`) to reproduce the results of Tables 3 and 4, as well as the results of running that script (the files ending in `_dict`)
-  - `experiments/sklearn_exps` contains the script (`compare_baseline_implementations.py`) to reproduce the results of Table 6 in Appendix 4
-  - `experiments/scaling_exps` contains the scripts (`investigate_scaling.py` and `make_scaling_plot.py`) to reproduce Appendix Figure 1 in Appendix 2 
-- the `tests` subdirectory contains verification tests for the tree/forest implementations.
-- feature-stability experiments for Table 5 are in `experiments/feature_stability/feature_importance_tests.py`.
-  Results are written to `experiments/feature_stability/stat_test_stability_log/reproduce_stability.csv`.
-- the `utils` directory contains helper code for training forest-based models
-  - `utils/solvers.py` includes the core implementation of MABSplit in the `solve_mab()` function
-  
-# Reproduce the tables
-- To reproduce the results in all the tables, and to reproduce the figure in Appendix 2, run:
-  - `bash repro_script.sh`
-  This may take many hours.
+The main extension in this repo is a Gradient Boosted Decision Tree (GBDT) implementation that integrates MABSplit into split search.
 
-# Installation and Large Dataset Files
-- Install dependencies:
-  - `pip install -e .`
-  - or `pip install -r requirements.txt`
-- Some derived datasets are generated locally during experiments and can be very large.
-  GitHub rejects files above 100 MB, so large generated CSVs should not be committed.
-- In particular, keep these files local only:
-  - `experiments/dataset/derived/covtype_1v2_binary.csv`
-  - `experiments/dataset/derived/paper_covtype_class2_vs_rest_581k.csv`
-- If needed, regenerate derived datasets by rerunning the benchmark/data-prep scripts used in this repo instead of committing the raw generated CSVs.
+Core extension files:
+- `gbdt_trainer.py`: GBDT training loop and model interface (`GBDTTrainer`, `GBDTParams`)
+- `tree_builder.py`: tree growth logic used by the boosting pipeline
+- `mabsplit_split_search.py`: MABSplit split search and exact baseline split search
+- `grad_hess.py`: gradient/hessian provider used by second-order boosting
+- `binning.py`: feature bin construction and application
+
+In this extension, the comparison is:
+- `split_search="mab"`: GBDT + MABSplit
+- `split_search="exact"`: GBDT with exact histogram split search baseline
+
+## Installation
+
+From repo root:
+
+```bash
+pip install -e .
+# or
+pip install -r requirements.txt
+```
+
+## Run The Gradient Boosting Extension
+
+### 1) Quick sanity run (small datasets)
+
+```bash
+python experiments/quick_mabsplit_gbdt_eval.py --datasets synthetic_reg,synthetic_clf --exact
+```
+
+This runs the extension path only and prints runtime/metric comparisons between MABSplit and exact split search.
+
+### 2) Large benchmark (synthetic defaults)
+
+```bash
+python experiments/mabsplit_gbdt_large_benchmark.py --n-runs 5 --output result_gbdt_extension.csv
+```
+
+### 3) Large benchmark on your own real dataset
+
+```bash
+python experiments/mabsplit_gbdt_large_benchmark.py \
+  --real-dataset mydata /path/to/data.csv classification target \
+  --n-runs 3 \
+  --output result_real_gbdt_extension.csv
+```
+
+`--real-dataset` arguments are: `NAME PATH TASK TARGET_COL`.
+`TASK` must be `classification` or `regression`.
+
+## Validate The Extension
+
+Run targeted tests for the new path:
+
+```bash
+pytest tests/test_mabsplit_gbdt.py
+```
+
+## Reproduce Original Tables/Figures
+
+To reproduce the existing paper tables and figure scripts in this repo:
+
+```bash
+bash repro_script.sh
+```
+
+This may take many hours.
+
+## Codebase Notes
+
+- `data_structures/`: base tree/forest structures and wrappers
+- `experiments/`: scripts for runtime, budget, scaling, feature-stability, and boosting evaluations
+- `utils/solvers.py`: core MABSplit logic used by tree/forest code paths
+
+## Large Dataset Files
+
+Some derived datasets are generated locally during experiments and can exceed GitHub limits.
+Do not commit large generated files such as:
+- `experiments/dataset/derived/covtype_1v2_binary.csv`
+- `experiments/dataset/derived/paper_covtype_class2_vs_rest_581k.csv`
